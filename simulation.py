@@ -12,7 +12,7 @@ times and delivery durations, excluding empty return travel. The robot
 returns to pickup after the final delivery.
 """
 
-
+import csv
 import simpy
 
 distance_m = 2.0
@@ -49,17 +49,59 @@ def transport_task(env, task_id, distance_m, speed_m_s, loading_time_s, unloadin
     task_duration_s = env.now - start_time_s
     print(f"{env.now}: Task {task_id}: Total task duration: {task_duration_s} seconds")
 
+    # Return the total task duration for potential use in further analysis or logging.
+    return {
+        "task_id": task_id,
+        "start_time_s": start_time_s,
+        "end_time_s": env.now,
+        "task_duration_s": task_duration_s
+    }
+
 
 def robot_workflow(env, task_ids=task_ids, distance_m=distance_m, speed_m_s=speed_m_s, loading_time_s=loading_time_s, unloading_time_s=unloading_time_s):
     """Complete deliveries in order, returning to pickup after each."""
+   
+    results = []
+    
     for tid in task_ids:
-        yield env.process(transport_task(env, tid, distance_m, speed_m_s, loading_time_s, unloading_time_s))
-        print(f"{env.now}: Task {tid}: Empty Return started")
-        # Empty return uses the same distance and speed as loaded travel.
-        yield env.timeout(distance_m / speed_m_s)
-        print(f"{env.now}: Task {tid}: Empty Return completed")
+       result = yield env.process(
+           transport_task(
+               env, tid, distance_m, speed_m_s, loading_time_s, unloading_time_s
+            )
+        )
+       results.append(result)
 
+       # Return to pickup using the same route and speed.
+       print(f"{env.now}: Task {tid}: Empty Return started")
+       yield env.timeout(distance_m / speed_m_s)
+       print(f"{env.now}: Task {tid}: Empty Return completed")
+    
+    
+    # Return all delivery records when the workflow finishes.
+    return results         
 
 env = simpy.Environment()
-env.process(robot_workflow(env, task_ids=task_ids, distance_m=distance_m, speed_m_s=speed_m_s, loading_time_s=loading_time_s, unloading_time_s=unloading_time_s))
+
+# Keep the process reference so its results can be read after completion.
+workflow = env.process(
+    robot_workflow(
+        env, task_ids=task_ids, distance_m=distance_m, speed_m_s=speed_m_s,
+        loading_time_s=loading_time_s, unloading_time_s=unloading_time_s
+    )
+)
+
 env.run()
+
+# Display the collected delivery records.
+
+results = workflow.value  # Access the results from the completed process
+print(f"\nCompleted deliveries: {len(results)}")
+for result in results:
+    print(result)
+
+
+fieldnames = ["task_id", "start_time_s", "end_time_s", "task_duration_s"]
+with open("delivery_results.csv", "w", newline="", encoding="utf-8") as file:
+    writer = csv.DictWriter(file, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(results)
