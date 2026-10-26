@@ -49,7 +49,7 @@ def transport_task(env, task_id, distance_m, speed_m_s, loading_time_s, unloadin
     task_duration_s = env.now - start_time_s
     print(f"{env.now}: Task {task_id}: Total task duration: {task_duration_s} seconds")
 
-    # Return the total task duration for potential use in further analysis or logging.
+     # Return the delivery identifier, timestamps, and duration.
     return {
         "task_id": task_id,
         "start_time_s": start_time_s,
@@ -58,50 +58,70 @@ def transport_task(env, task_id, distance_m, speed_m_s, loading_time_s, unloadin
     }
 
 
-def robot_workflow(env, task_ids=task_ids, distance_m=distance_m, speed_m_s=speed_m_s, loading_time_s=loading_time_s, unloading_time_s=unloading_time_s):
+def robot_workflow(env, task_ids, distance_m, speed_m_s,
+                   loading_time_s, unloading_time_s):
     """Complete deliveries in order, returning to pickup after each."""
    
     results = []
     
     for tid in task_ids:
-       result = yield env.process(
-           transport_task(
-               env, tid, distance_m, speed_m_s, loading_time_s, unloading_time_s
+        # Complete one delivery before beginning the empty return.
+        result = yield env.process(
+            transport_task(
+                env, tid, distance_m, speed_m_s,
+                loading_time_s, unloading_time_s
             )
         )
-       results.append(result)
+        results.append(result)
 
-       # Return to pickup using the same route and speed.
-       print(f"{env.now}: Task {tid}: Empty Return started")
-       yield env.timeout(distance_m / speed_m_s)
-       print(f"{env.now}: Task {tid}: Empty Return completed")
+        # Return to pickup using the same route and speed.
+        print(f"{env.now}: Task {tid}: Empty return started")
+        yield env.timeout(distance_m / speed_m_s)
+        print(f"{env.now}: Task {tid}: Empty return completed")
     
     
     # Return all delivery records when the workflow finishes.
     return results         
 
-env = simpy.Environment()
+def run_simulation(task_ids, distance_m, speed_m_s,
+                   loading_time_s, unloading_time_s):
+    """Run one robot's delivery sequence and return its delivery records."""
+    # create the environment and start the robot workflow process
+    env = simpy.Environment()
 
-# Keep the process reference so its results can be read after completion.
-workflow = env.process(
-    robot_workflow(
-        env, task_ids=task_ids, distance_m=distance_m, speed_m_s=speed_m_s,
-        loading_time_s=loading_time_s, unloading_time_s=unloading_time_s
+    # Keep the process reference so its results can be read after completion.
+    workflow = env.process(
+        robot_workflow(
+            env, task_ids, distance_m, speed_m_s,
+            loading_time_s, unloading_time_s
+        )
     )
-)
 
-env.run()
+    env.run()
 
-# Display the collected delivery records.
+    # Retrieve the delivery records returned by the completed workflow.
+    return workflow.value  # Access the results from the completed process
+ 
 
-results = workflow.value  # Access the results from the completed process
-print(f"\nCompleted deliveries: {len(results)}")
-for result in results:
-    print(result)
+def main():
+    """Run the robot workflow baseline simulation scenario, display results, and export delivery records."""
+    # create the environment and start the robot workflow process
+    results = run_simulation(
+        task_ids, distance_m, speed_m_s,
+        loading_time_s, unloading_time_s
+    )
+    print(f"\nCompleted deliveries: {len(results)}")
+    for result in results:
+        print(result)
 
 
-fieldnames = ["task_id", "start_time_s", "end_time_s", "task_duration_s"]
-with open("delivery_results.csv", "w", newline="", encoding="utf-8") as file:
-    writer = csv.DictWriter(file, fieldnames=fieldnames)
-    writer.writeheader()
-    writer.writerows(results)
+    fieldnames = ["task_id", "start_time_s", "end_time_s", "task_duration_s"]
+    with open("delivery_results.csv", "w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(results)
+
+
+
+if __name__ == "__main__":
+    main()
