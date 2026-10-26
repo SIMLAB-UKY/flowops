@@ -4,9 +4,10 @@ Five deliveries use a 2 m route, 0.1 m/s speed, 5 s loading,
 and 10 s unloading. Each delivery takes 35 s, with a 20 s
 empty return separating consecutive deliveries.
 """
+import simpy
 
 import unittest
-from simulation import run_simulation
+from simulation import run_simulation, arrival_workflow
 """Check delivery counts, orderm and timing for the baseline scenario."""
 
 class TestSimulation(unittest.TestCase):
@@ -90,6 +91,82 @@ class TestSimulation(unittest.TestCase):
                 loading_time_s=5,
                 unloading_time_s=-10,
             )
+
+    def test_arrivals_waiting_and_idle(self):
+        """Verify that arrivals are queued and idle time is measured."""
+        tasks = [
+            {"task_id": "T001", "arrival_time_s": 0},
+            {"task_id": "T002", "arrival_time_s": 10},
+            {"task_id": "T003", "arrival_time_s": 130},
+        ]
+
+        env = simpy.Environment()
+        workflow = env.process(
+            arrival_workflow(
+                env, tasks, distance_m=2.0, speed_m_s=0.1,
+                loading_time_s=5, unloading_time_s=10,
+            )
+        )
+        env.run()
+        results = workflow.value
+
+
+        # Expected values come from the hand-calculated scenario.
+        self.assertEqual(len(results), 3)
+        expected_starts = [0, 55, 130]
+        expected_waits = [0, 45, 0]
+        expected_flows = [35, 80, 35]
+
+        for i, record in enumerate(results):
+            self.assertAlmostEqual(record["start_time_s"], expected_starts[i])
+            self.assertAlmostEqual(record["waiting_time_s"], expected_waits[i])
+            self.assertAlmostEqual(record["flow_time_s"], expected_flows[i])
+
+        # Simulation completion includes the last empty return.
+        self.assertAlmostEqual(env.now, 185)
+
+        
+    def test_negative_arrival_rejected(self):
+        """Reject negative arrival times before calculating waiting time."""
+        tasks = [
+            {"task_id": "T001", "arrival_time_s":-1}
+            ]
+
+        env = simpy.Environment()
+
+         # Validation runs when the simulation executes the process.
+        with self.assertRaisesRegex(
+            ValueError, "arrival_time_s must be nonnegative"
+        ):
+            env.process(
+                arrival_workflow(
+                    env, tasks, distance_m=2.0, speed_m_s=0.1,
+                    loading_time_s=5, unloading_time_s=10,
+                )
+            )
+            env.run()
+        
+    def test_unordered_arrival_rejected(self):
+        """Reject unordered arrival times before calculating waiting time."""
+        tasks = [
+            {"task_id": "T001", "arrival_time_s": 10},
+            {"task_id": "T002", "arrival_time_s": 5}
+            ]
+
+        env = simpy.Environment()
+
+         # Validation runs when the simulation executes the process.
+        with self.assertRaisesRegex(
+            ValueError, "arrival_time_s must be nondecreasing"
+        ):
+            env.process(
+                arrival_workflow(
+                    env, tasks, distance_m=2.0, speed_m_s=0.1,
+                    loading_time_s=5, unloading_time_s=10,
+                )
+            )
+            env.run()
+
 
 
     

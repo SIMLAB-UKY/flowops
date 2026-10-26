@@ -21,6 +21,7 @@ loading_time_s = 5
 unloading_time_s = 10
 task_ids = ["T001", "T002", "T003", "T004", "T005"]  # List of task IDs
 
+
 def transport_task(env, task_id, distance_m, speed_m_s, loading_time_s, unloading_time_s):
     """Execute one delivery from loading through unloading."""
     start_time_s = env.now
@@ -82,6 +83,57 @@ def robot_workflow(env, task_ids, distance_m, speed_m_s,
     
     # Return all delivery records when the workflow finishes.
     return results         
+
+def arrival_workflow(env, tasks, distance_m, speed_m_s,
+                   loading_time_s, unloading_time_s):
+    """Serve tasks in arrival order and record waiting and flow times.
+
+    Tasks must have nonnegative arrival times in nondecreasing order.
+    The robot returns to pickup after every delivery, including the last.
+    """
+
+    previous_arrival_time_s = 0
+    for task in tasks:
+        arrival_time_s = task["arrival_time_s"]
+        if arrival_time_s < 0:
+            raise ValueError("arrival_time_s must be nonnegative")
+        if arrival_time_s < previous_arrival_time_s:
+            raise ValueError("arrival_time_s must be nondecreasing")
+        previous_arrival_time_s = arrival_time_s
+        
+    results = []
+
+    for task in tasks:
+        task_id = task["task_id"]
+        arrival_time_s = task["arrival_time_s"]
+
+        if env.now < arrival_time_s:
+            # Wait until the task arrives.
+            yield env.timeout(arrival_time_s - env.now)
+
+        waiting_time_s = env.now - arrival_time_s
+
+        result = yield env.process(
+            transport_task(
+                env, task_id, distance_m, speed_m_s,
+                loading_time_s, unloading_time_s
+            )
+        )
+
+        # Add waiting time to the result record.
+        result["arrival_time_s"] = arrival_time_s
+        result["waiting_time_s"] = waiting_time_s
+        result["flow_time_s"] = result["end_time_s"] - arrival_time_s
+        results.append(result)
+
+
+        # return travel keep the robot busy until the next task arrives.
+        yield env.timeout(distance_m / speed_m_s)
+
+    return results
+
+
+
 
 def run_simulation(task_ids, distance_m, speed_m_s,
                    loading_time_s, unloading_time_s):
