@@ -100,7 +100,7 @@ def arrival_workflow(env, tasks, distance_m, speed_m_s,
         if arrival_time_s < previous_arrival_time_s:
             raise ValueError("arrival_time_s must be nondecreasing")
         previous_arrival_time_s = arrival_time_s
-        
+
     results = []
 
     for task in tasks:
@@ -132,6 +132,78 @@ def arrival_workflow(env, tasks, distance_m, speed_m_s,
 
     return results
 
+
+def task_source(env, tasks, task_queue):
+    """Release task records into a shared queue at their arrival times.
+
+    Arrival times are absolute simulation times in seconds.
+    Tasks must be listed in nondecreasing arrival order.
+    """
+
+    # Validate the complete schedule before releasing any requests.
+    previous_arrival_s = 0
+    for task in tasks:
+        arrival_time_s = task["arrival_time_s"]
+
+        if arrival_time_s < 0:
+            raise ValueError("arrival_time_s must be nonnegative")
+        if arrival_time_s < previous_arrival_s:
+            raise ValueError("arrival_time_s must be nondecreasing")
+        previous_arrival_s = arrival_time_s
+
+    for task in tasks:
+        #convert the absolute arrival time into a delay from the current simulation time.
+        delay_s = task["arrival_time_s"] - env.now
+        yield env.timeout(delay_s)
+
+        # make therequest available independently of robot activity.
+
+        yield task_queue.put(task)
+        print(f"{env.now}: Task {task['task_id']}: Arrived")
+
+    yield task_queue.put(None)  # Signal that no more tasks will arrive.
+
+def robot_worker(env, task_queue, distance_m, speed_m_s,
+                 loading_time_s, unloading_time_s):
+    """Serve queued deliveries in FIFO order until a None stop signal.
+
+    Record waiting and flow times in seconds. Complete an empty return
+    after every delivery before requesting the next queue item.
+    """
+
+    results = []
+
+    while True:
+        # Wait for the next task to arrive in the queue.
+        task = yield task_queue.get()
+
+        # Stop explicitly after all preceding requests have been served.
+
+        if task is None:
+            return results
+
+        task_id = task["task_id"]
+        arrival_time_s = task["arrival_time_s"]
+        waiting_time_s = env.now - arrival_time_s
+
+        # Complete this delivery before beginning another request.
+        result = yield env.process(
+            transport_task(
+                env, task_id, distance_m, speed_m_s,
+                loading_time_s, unloading_time_s
+            )
+        )
+
+        # Preserve the arrival-based metrics alongside delivery timing.
+        result["arrival_time_s"] = arrival_time_s
+        result["waiting_time_s"] = waiting_time_s
+        result["flow_time_s"] = result["end_time_s"] - arrival_time_s
+        results.append(result)
+
+        # the robot remains occupied until it returns to pickup.
+        print(f"{env.now}: Task {task_id}: Empty return started")
+        yield env.timeout(distance_m / speed_m_s)
+        print(f"{env.now}: Task {task_id}: Empty return completed")
 
 
 

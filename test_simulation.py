@@ -8,6 +8,7 @@ import simpy
 
 import unittest
 from simulation import run_simulation, arrival_workflow
+from simulation import task_source, robot_worker
 """Check delivery counts, orderm and timing for the baseline scenario."""
 
 class TestSimulation(unittest.TestCase):
@@ -168,5 +169,50 @@ class TestSimulation(unittest.TestCase):
             env.run()
 
 
+    def test_queue_based_deliveries(self):
+        """Verify FIFO delivery records and completion after the final return."""
+        tasks = [
+            {"task_id": "T001", "arrival_time_s": 0},
+            {"task_id": "T002", "arrival_time_s": 10},
+            {"task_id": "T003", "arrival_time_s": 130},
+        ]
 
-    
+        # Connect independent arrivals and one robot through a shared queue.
+        env = simpy.Environment()
+        task_queue = simpy.Store(env)
+
+        # Release requests independently while the robot performs deliveries.
+        env.process(task_source(env, tasks, task_queue))
+
+        worker = env.process(
+            robot_worker(
+                env, task_queue, distance_m=2.0, speed_m_s=0.1,
+                loading_time_s=5, unloading_time_s=10,
+            )
+        )
+
+        # Run through the robot's final return and explicit shutdown.
+        env.run(until=worker)
+        results = worker.value
+
+        # confirm each task is served once in the arrival order.    
+
+        self.assertEqual(len(results), 3)
+        self.assertEqual(
+            [record["task_id"] for record in results],
+            ["T001", "T002", "T003"]
+        )
+
+        # Compare against the independently calculated benchmark.
+        expected_starts = [0, 55, 130]
+        expected_waits = [0, 45, 0]
+        expected_flows = [35, 80, 35]
+
+        for i, record in enumerate(results):
+            self.assertAlmostEqual(record["start_time_s"], expected_starts[i])
+            self.assertAlmostEqual(record["waiting_time_s"], expected_waits[i])
+            self.assertAlmostEqual(record["flow_time_s"], expected_flows[i])
+
+          # The worker stops after its final return and consumes the stop signal.
+        self.assertAlmostEqual(env.now, 185)
+        self.assertEqual(task_queue.items, [])  # Stop signal remains in the queue.

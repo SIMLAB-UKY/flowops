@@ -7,7 +7,7 @@ after the robot has returned to pickup.
 
 import simpy
 
-from simulation import arrival_workflow
+from simulation import task_source, robot_worker
 
 def main():
     """Run the arrival scenario and display its delivery records."""
@@ -21,16 +21,23 @@ def main():
 
     # Run the simulation with specified parameters.
     env = simpy.Environment()
-    workflow = env.process(
-        arrival_workflow(
-            env, tasks, distance_m=2.0, speed_m_s=0.1,
+    task_queue = simpy.Store(env)
+
+    #Release requests independently while the robot performs deliveries.
+
+    env.process(task_source(env, tasks, task_queue))
+
+    worker = env.process(
+        robot_worker(
+            env, task_queue, distance_m=2.0, speed_m_s=0.1,
             loading_time_s=5, unloading_time_s=10,
         )
     )
-    env.run()
 
-    #Display task metrics and completion of thefinal empty return travel.
-    for result in workflow.value:
+    # Run through the robot's final return and explicit shutdown.
+    env.run(until=worker)
+
+    for result in worker.value:
         print(result)
     print(f"Robot finished at: {env.now} seconds")
 
