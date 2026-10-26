@@ -49,3 +49,47 @@ class TestSimulation(unittest.TestCase):
                 loading_time_s=5,
                 unloading_time_s=10,
             )
+
+
+    def test_negative_distance_rejected(self):
+        """Reject negative distance before calculating travel duration."""
+        with self.assertRaisesRegex(
+            ValueError, "distance_m must be nonnegative"
+        ):
+            run_simulation(
+                task_ids=["T001"],
+                distance_m=-1.0,
+                speed_m_s=0.1,
+                loading_time_s=5,
+                unloading_time_s=10,
+            )
+
+
+    def test_negative_loading_time_rejected(self):
+        """Reject negative loading time before calculating travel duration."""
+        with self.assertRaisesRegex(
+            ValueError, "loading_time_s must be nonnegative"
+        ):
+            run_simulation(
+                task_ids=["T001"],
+                distance_m=2.0,
+                speed_m_s=0.1,
+                loading_time_s=-5,
+                unloading_time_s=10,
+            )
+
+    def test_negative_unloading_time_rejected(self):
+        """Reject negative unloading time before calculating travel duration."""
+        with self.assertRaisesRegex(
+            ValueError, "unloading_time_s must be nonnegative"
+        ):
+            run_simulation(
+                task_ids=["T001"],
+                distance_m=2.0,
+                speed_m_s=0.1,
+                loading_time_s=5,
+                unloading_time_s=-10,
+            )
+
+
+    
