@@ -133,13 +133,19 @@ def arrival_workflow(env, tasks, distance_m, speed_m_s,
     return results
 
 
-def task_source(env, tasks, task_queue):
+def task_source(env, tasks, task_queue, num_robots=1):
     """Release task records into a shared queue at their arrival times.
 
     Arrival times are absolute simulation times in seconds.
     Tasks must be listed in nondecreasing arrival order.
     """
 
+    # A valid fleet size determines how many shutdown signals to send.
+    if isinstance(num_robots, bool) or not isinstance(num_robots, int):
+        raise ValueError("num_robots must be a positive integer")
+    if num_robots < 1:
+        raise ValueError("num_robots must be a positive integer")
+    
     # Validate the complete schedule before releasing any requests.
     previous_arrival_s = 0
     for task in tasks:
@@ -161,10 +167,12 @@ def task_source(env, tasks, task_queue):
         yield task_queue.put(task)
         print(f"{env.now}: Task {task['task_id']}: Arrived")
 
-    yield task_queue.put(None)  # Signal that no more tasks will arrive.
+    # Each worker consumes one stop signal and then returns its results.
+    for _ in range(num_robots):
+        yield task_queue.put(None)
 
 def robot_worker(env, task_queue, distance_m, speed_m_s,
-                 loading_time_s, unloading_time_s):
+                 loading_time_s, unloading_time_s, robot_id="R001"):
     """Serve queued deliveries in FIFO order until a None stop signal.
 
     Record waiting and flow times in seconds. Complete an empty return
@@ -198,6 +206,7 @@ def robot_worker(env, task_queue, distance_m, speed_m_s,
         result["arrival_time_s"] = arrival_time_s
         result["waiting_time_s"] = waiting_time_s
         result["flow_time_s"] = result["end_time_s"] - arrival_time_s
+        result["robot_id"] = robot_id
         results.append(result)
 
         # the robot remains occupied until it returns to pickup.

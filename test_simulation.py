@@ -212,7 +212,82 @@ class TestSimulation(unittest.TestCase):
             self.assertAlmostEqual(record["start_time_s"], expected_starts[i])
             self.assertAlmostEqual(record["waiting_time_s"], expected_waits[i])
             self.assertAlmostEqual(record["flow_time_s"], expected_flows[i])
+            # Each delivery must identify the worker that completed it.
+            self.assertEqual(record["robot_id"], "R001")
 
           # The worker stops after its final return and consumes the stop signal.
         self.assertAlmostEqual(env.now, 185)
         self.assertEqual(task_queue.items, [])  # Stop signal remains in the queue.
+
+
+    def test_two_robot_deliveries(self):
+        """Verify concurrent deliveries and complete fleet shutdown."""
+
+        # Use known arrivals so expected timings can be calculated by hand.
+        tasks = [
+            {"task_id": "T001", "arrival_time_s": 0},
+            {"task_id": "T002", "arrival_time_s": 10},
+            {"task_id": "T003", "arrival_time_s": 130},
+        ]
+        robot_ids = ["R001", "R002"]
+
+        # Both workers receive tasks from the same queue.
+        env = simpy.Environment()
+        task_queue = simpy.Store(env)
+        env.process(
+            task_source(
+                env, tasks, task_queue,
+                num_robots=len(robot_ids),
+            )
+        )
+
+        # Keep each process reference to inspect its results and completion.
+        workers = []
+        for robot_id in robot_ids:
+            worker = env.process(
+                robot_worker(
+                    env, task_queue,
+                    distance_m=2.0,
+                    speed_m_s=0.1,
+                    loading_time_s=5,
+                    unloading_time_s=10,
+                    robot_id=robot_id,
+                )
+            )
+            workers.append(worker)
+
+        # Waiting for all workers exposes missing shutdown signals.
+        env.run(until=env.all_of(workers))
+
+        # Combine records without assuming which robot finishes first.
+        results = []
+        for worker in workers:
+            self.assertTrue(worker.processed)
+            results.extend(worker.value)
+
+        # Count-aware comparison detects missing or duplicated deliveries.
+        self.assertCountEqual(
+            [record["task_id"] for record in results],
+            ["T001", "T002", "T003"],
+        )
+        self.assertEqual(
+            {record["robot_id"] for record in results},
+            set(robot_ids),
+        )
+
+        # Match expected timings by task ID rather than collection order.
+        expected = {
+            "T001": (0, 35),
+            "T002": (10, 45),
+            "T003": (130, 165),
+        }
+        for record in results:
+            expected_start, expected_end = expected[record["task_id"]]
+            self.assertAlmostEqual(record["start_time_s"], expected_start)
+            self.assertAlmostEqual(record["end_time_s"], expected_end)
+            self.assertAlmostEqual(record["waiting_time_s"], 0)
+            self.assertAlmostEqual(record["flow_time_s"], 35)
+
+        # Completion includes the final return and consumption of both signals.
+        self.assertAlmostEqual(env.now, 185)
+        self.assertEqual(task_queue.items, [])
