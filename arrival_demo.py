@@ -75,6 +75,17 @@ def main(num_robots=2):
     # Display records in service-start order.
     results.sort(key=lambda record: record["start_time_s"])
 
+    delivery_per_robot = {}
+    for robot_id in robot_ids:
+        delivery_per_robot[robot_id] = 0
+
+    for record in results:
+        delivery_per_robot[record["robot_id"]] += 1
+
+    print("\nDeliveries per robot:")
+    for robot_id, count in delivery_per_robot.items():
+        print(f"{robot_id}: {count}")
+
     for result in results:
         print(result)
 
