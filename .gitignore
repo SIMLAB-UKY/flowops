@@ -223,3 +223,6 @@ __marimo__/
 .venv/
 
 delivery_results.csv
+
+# Reproducible output from compare_fleets.py.
+fleet_comparison.csv
