@@ -71,3 +71,45 @@ The robot completes its final empty return at 185 seconds.
 This is an operational discrete-event model, not yet a physics simulation.
 
 
+## Fleet-size comparison
+
+This deterministic scenario compares one and two robots serving three
+requests arriving at 0, 0, and 130 seconds through one shared loading
+station. Loading takes 5 seconds, unloading takes 10 seconds, and each
+2-meter trip takes 20 seconds at 0.1 m/s.
+
+![Mean flow time by fleet size](fleet_comparison.png)
+
+| Metric | One robot | Two robots |
+|---|---:|---:|
+| Completed deliveries | 3 | 3 |
+| Mean waiting for a robot (s) | 18.33 | 0.00 |
+| Mean waiting for loading capacity (s) | 0.00 | 1.67 |
+| Mean flow time (s) | 53.33 | 36.67 |
+| Fleet finish time, including final return (s) | 185.00 | 185.00 |
+
+Adding a second robot reduces mean flow time by 31.25% in this scenario.
+Fleet finish time remains unchanged because the final request arrives
+at 130 seconds.
+
+Flow time runs from request arrival to unloading completion. It excludes
+empty return travel. Active delivery time includes loading, loaded travel,
+and unloading, but excludes waiting.
+
+These results describe this specific scenario. The model currently excludes
+traffic conflicts, battery constraints, and uncertainty.
+
+
+
+
+### Reproduce the comparison
+
+```powershell
+python -m pip install -r requirements.txt
+python -m unittest -v -b test_simulation
+python compare_fleets.py
+python plot_fleet_comparison.py
+```
+
+The comparison script writes `fleet_comparison.csv`.
+The plotting script reads that CSV and writes `fleet_comparison.png`.

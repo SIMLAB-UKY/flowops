@@ -291,3 +291,94 @@ class TestSimulation(unittest.TestCase):
         # Completion includes the final return and consumption of both signals.
         self.assertAlmostEqual(env.now, 185)
         self.assertEqual(task_queue.items, [])
+
+
+    def test_shared_loading_station(self):
+            """Verify exclusive loading and release before robot travel."""
+
+            # Simultaneous arrivals force the robots to compete for loading.
+            tasks = [
+                {"task_id": "T001", "arrival_time_s": 0},
+                {"task_id": "T002", "arrival_time_s": 0},
+            ]
+            robot_ids = ["R001", "R002"]
+            loading_time_s = 5
+
+            # Create one shared station with space for one loading robot.
+            env = simpy.Environment()
+            task_queue = simpy.Store(env)
+            loading_station = simpy.Resource(env, capacity=1)
+
+            env.process(
+                task_source(
+                    env, tasks, task_queue,
+                    num_robots=len(robot_ids),
+                )
+            )
+
+            # Pass the same station to both workers.
+            workers = []
+            for robot_id in robot_ids:
+                worker = env.process(
+                    robot_worker(
+                        env, task_queue,
+                        distance_m=2.0,
+                        speed_m_s=0.1,
+                        loading_time_s=loading_time_s,
+                        unloading_time_s=10,
+                        robot_id=robot_id,
+                        loading_station=loading_station,
+                    )
+                )
+                workers.append(worker)
+
+            # Wait for both empty returns and explicit worker shutdown.
+            env.run(until=env.all_of(workers))
+
+            results = []
+            for worker in workers:
+                results.extend(worker.value)
+
+            # Verify each request completes exactly once.
+            self.assertCountEqual(
+                [record["task_id"] for record in results],
+                ["T001", "T002"],
+            )
+
+            # Compare loading order without depending on robot identity.
+            results.sort(key=lambda record: record["loading_start_time_s"])
+            first, second = results
+
+            self.assertAlmostEqual(first["loading_start_time_s"], 0)
+            self.assertAlmostEqual(second["loading_start_time_s"], 5)
+            self.assertAlmostEqual(first["loading_wait_time_s"], 0)
+            self.assertAlmostEqual(second["loading_wait_time_s"], 5)
+
+            # Loading intervals must not overlap.
+            first_loading_end_s = (
+                first["loading_start_time_s"] + loading_time_s
+            )
+            self.assertGreaterEqual(
+                second["loading_start_time_s"], first_loading_end_s
+            )
+
+            # The second robot loads while the first is still delivering.
+            self.assertLess(
+                second["loading_start_time_s"], first["end_time_s"]
+            )
+            self.assertAlmostEqual(first["end_time_s"], 35)
+            self.assertAlmostEqual(second["end_time_s"], 40)
+
+            # Both robots were available immediately; delay came from the station.
+            for record in results:
+                self.assertAlmostEqual(record["waiting_time_s"], 0)
+                self.assertAlmostEqual(
+                    record["flow_time_s"],
+                    record["waiting_time_s"] + record["task_duration_s"],
+                )
+
+            # Final return ends at 40 + 20 seconds, leaving no pending work.
+            self.assertAlmostEqual(env.now, 60)
+            self.assertEqual(task_queue.items, [])
+            self.assertEqual(loading_station.count, 0)
+            self.assertEqual(len(loading_station.queue), 0)

@@ -22,8 +22,16 @@ unloading_time_s = 10
 task_ids = ["T001", "T002", "T003", "T004", "T005"]  # List of task IDs
 
 
-def transport_task(env, task_id, distance_m, speed_m_s, loading_time_s, unloading_time_s):
-    """Execute one delivery from loading through unloading."""
+# Accept a shared loading station while preserving the unconstrained baseline.
+def transport_task(
+    env, task_id, distance_m, speed_m_s,
+    loading_time_s, unloading_time_s, loading_station=None
+):
+    """Execute a delivery, including any loading-station wait.
+
+    start_time_s marks task handling before station access.
+    task_duration_s includes station waiting but excludes empty return.
+    """
     start_time_s = env.now
     if speed_m_s <= 0:
         raise ValueError("speed_m_s must be greater than zero")
@@ -37,9 +45,30 @@ def transport_task(env, task_id, distance_m, speed_m_s, loading_time_s, unloadin
         raise ValueError("unloading_time_s must be nonnegative")
     
     travel_time_s = distance_m / speed_m_s
-    print(f"{env.now}: Task {task_id}: Loading started")
-    yield env.timeout(loading_time_s)
-    print(f"{env.now}: Task {task_id}: Loading completed")
+    # Measure station waiting separately from waiting for an available robot.
+    loading_request_time_s = env.now
+
+
+
+    if loading_station is None:
+        # The baseline allows loading to begin immediately.
+        loading_start_time_s = env.now
+        loading_wait_time_s = 0
+        print(f"{env.now}: Task {task_id}: Loading started")
+        yield env.timeout(loading_time_s)
+        print(f"{env.now}: Task {task_id}: Loading completed")
+    else:
+        # Hold the shared station only during loading.
+        with loading_station.request() as request:
+            yield request
+
+            loading_start_time_s = env.now
+            loading_wait_time_s = env.now - loading_request_time_s
+            print(f"{env.now}: Task {task_id}: Loading started")
+            yield env.timeout(loading_time_s)
+            print(f"{env.now}: Task {task_id}: Loading completed")
+
+
     print(f"{env.now}: Task {task_id}: Transport started")
     yield env.timeout(travel_time_s)
     print(f"{env.now}: Task {task_id}: Transport completed")
@@ -50,12 +79,14 @@ def transport_task(env, task_id, distance_m, speed_m_s, loading_time_s, unloadin
     task_duration_s = env.now - start_time_s
     print(f"{env.now}: Task {task_id}: Total task duration: {task_duration_s} seconds")
 
-     # Return the delivery identifier, timestamps, and duration.
+    # Preserve task timing and expose the delay caused by loading capacity.
     return {
         "task_id": task_id,
         "start_time_s": start_time_s,
+        "loading_start_time_s": loading_start_time_s,
+        "loading_wait_time_s": loading_wait_time_s,
         "end_time_s": env.now,
-        "task_duration_s": task_duration_s
+        "task_duration_s": task_duration_s,
     }
 
 
@@ -172,7 +203,7 @@ def task_source(env, tasks, task_queue, num_robots=1):
         yield task_queue.put(None)
 
 def robot_worker(env, task_queue, distance_m, speed_m_s,
-                 loading_time_s, unloading_time_s, robot_id="R001"):
+                 loading_time_s, unloading_time_s, robot_id="R001", loading_station=None):
     """Serve queued deliveries in FIFO order until a None stop signal.
 
     Record waiting and flow times in seconds. Complete an empty return
@@ -198,7 +229,8 @@ def robot_worker(env, task_queue, distance_m, speed_m_s,
         result = yield env.process(
             transport_task(
                 env, task_id, distance_m, speed_m_s,
-                loading_time_s, unloading_time_s
+                loading_time_s, unloading_time_s,
+                loading_station=loading_station,
             )
         )
 
