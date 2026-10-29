@@ -14,16 +14,28 @@ import simpy
 
 from simulation import task_source, robot_worker
 from metrics import summarize_results
+# Prepare task-specific loading times before simulation execution.
+from scenario_inputs import assign_loading_times
 
-def run_scenario(num_robots=2, verbose=True):
+def run_scenario(
+    num_robots=2, verbose=True, loading_seed=None, tasks=None
+):
     """Run the fixed arrival scenario and return its records and metrics."""
 
-        # Simultaneous requests reveal whether loading capacity is constrained.
-    tasks = [
-        {"task_id": "T001", "arrival_time_s": 0},
-        {"task_id": "T002", "arrival_time_s": 0},
-        {"task_id": "T003", "arrival_time_s": 130},
-    ]
+    # Simultaneous requests reveal whether loading capacity is constrained.
+    if tasks is None:
+        tasks = [
+            {"task_id": "T001", "arrival_time_s": 0},
+            {"task_id": "T002", "arrival_time_s": 0},
+            {"task_id": "T003", "arrival_time_s": 130},
+        ]
+    else:
+        # Keep scenario preparation separate from the caller's task records.
+        tasks = [task.copy() for task in tasks]
+
+    # Assign reproducible loading times to each task.
+    if loading_seed is not None:
+        tasks = assign_loading_times(tasks, seed=loading_seed, low_s=3.0, high_s=7.0)
 
     # Run the simulation with specified parameters.
     env = simpy.Environment()
@@ -34,8 +46,10 @@ def run_scenario(num_robots=2, verbose=True):
 
     #Release requests independently while the robot performs deliveries.
 
-     # Give each robot an identity and send one shutdown signal per worker.
-        # Reject invalid fleet sizes before creating workers.
+    # Give each robot an identity and send one shutdown signal per worker.
+    # Reject invalid fleet sizes before creating workers.
+    # Loading defaults to 5 seconds. Supplying loading_seed assigns each task
+    # a reproducible uniform loading duration between 3 and 7 seconds.
     if isinstance(num_robots, bool) or not isinstance(num_robots, int):
         raise ValueError("num_robots must be a positive integer")
     if num_robots < 1:

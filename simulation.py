@@ -93,6 +93,7 @@ def transport_task(
         "start_time_s": start_time_s,
         "loading_start_time_s": loading_start_time_s,
         "loading_wait_time_s": loading_wait_time_s,
+        "loading_time_s": loading_time_s,
         "end_time_s": env.now,
         "task_duration_s": task_duration_s,
     }
@@ -234,12 +235,14 @@ def robot_worker(env, task_queue, distance_m, speed_m_s,
         task_id = task["task_id"]
         arrival_time_s = task["arrival_time_s"]
         waiting_time_s = env.now - arrival_time_s
+        # Use the task's loading requirement, or the scenario default.
+        task_loading_time_s = task.get("loading_time_s", loading_time_s)
 
-        # Complete this delivery before beginning another request.
+       # Execute the delivery using this task's loading requirement.
         result = yield env.process(
             transport_task(
                 env, task_id, distance_m, speed_m_s,
-                loading_time_s, unloading_time_s,
+                task_loading_time_s, unloading_time_s,
                 loading_station=loading_station,
                 verbose=verbose,
             )

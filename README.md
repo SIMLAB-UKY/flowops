@@ -113,3 +113,67 @@ python plot_fleet_comparison.py
 
 The comparison script writes `fleet_comparison.csv`.
 The plotting script reads that CSV and writes `fleet_comparison.png`.
+
+
+
+### Paired experiment with variable loading times
+
+This experiment compares one and two robots serving three requests
+that all arrive at simulation time zero. Robots share one loading
+position. Each delivery travels 2 m at 0.1 m/s, unloads for 10 seconds,
+and returns empty along the same route.
+
+Loading durations follow an illustrative Uniform(3, 7) distribution
+in seconds. These bounds are modeling assumptions, not fitted lab data.
+
+The experiment uses 30 paired replications with seeds 42–71.
+Within each replication, both fleet configurations receive the same
+task-specific loading durations, sampled before dispatch.
+
+The paired reduction is defined as:
+
+`mean flow time with one robot − mean flow time with two robots`
+
+Positive values favor the two-robot fleet.
+
+| Measure | Result |
+|---|---:|
+| Paired replications | 30 |
+| Mean flow-time reduction | 34.9505 s |
+| Sample standard deviation of reductions | 0.3603 s |
+| Standard error of the estimated mean | 0.0658 s |
+| Approximate 95% confidence interval | [34.8160, 35.0851] s |
+| Analytical expected reduction | 35 s |
+
+![Paired fleet comparison](paired_differences_simultaneous_arrivals.png)
+
+The left panel shows variation between sampled workloads.
+The right panel shows uncertainty in the estimated mean reduction.
+
+For this scenario, the paired reduction is `(100 + L2) / 3`,
+where `L2` is the second task's loading duration in seconds.
+Its expected value is therefore 35 seconds, consistent with the
+simulation estimate.
+
+These conclusions apply to this three-request scenario and its
+assumptions. The confidence interval quantifies sampling uncertainty,
+not uncertainty about how accurately the model represents a real lab.
+
+#### Reproduce the experiment
+
+```powershell
+python -m pip install -r requirements.txt
+python -m unittest discover -v -b
+python run_replications.py
+python analyze_replications.py
+python plot_paired_differences.py
+```
+
+The scripts generate:
+
+- `replication_results_simultaneous_arrivals.csv`
+- `paired_differences_simultaneous_arrivals.csv`
+- `paired_differences_simultaneous_arrivals.png`
+
+The current analysis and plotting scripts use a Student's t critical
+value for 29 degrees of freedom and require exactly 30 paired replications.

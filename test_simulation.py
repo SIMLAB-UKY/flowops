@@ -382,3 +382,62 @@ class TestSimulation(unittest.TestCase):
             self.assertEqual(task_queue.items, [])
             self.assertEqual(loading_station.count, 0)
             self.assertEqual(len(loading_station.queue), 0)
+
+    def test_task_loading_time_overrides_default(self):
+        """Use a task's loading duration instead of the worker default."""
+
+        # One request isolates service duration from queue contention.
+        tasks = [
+            {
+                "task_id": "T001",
+                "arrival_time_s": 0,
+                "loading_time_s": 7,
+            }
+        ]
+
+        env = simpy.Environment()
+        task_queue = simpy.Store(env)
+        loading_station = simpy.Resource(env, capacity=1)
+
+        # Release the request and one shutdown signal.
+        env.process(
+            task_source(
+                env, tasks, task_queue,
+                num_robots=1, verbose=False,
+            )
+        )
+
+        # The task's seven-second requirement must override this default.
+        worker = env.process(
+            robot_worker(
+                env, task_queue,
+                distance_m=2.0,
+                speed_m_s=0.1,
+                loading_time_s=5,
+                unloading_time_s=10,
+                robot_id="R001",
+                loading_station=loading_station,
+                verbose=False,
+            )
+        )
+
+        # Include the final empty return and worker shutdown.
+        env.run(until=worker)
+
+        self.assertEqual(len(worker.value), 1)
+        record = worker.value[0]
+
+        # With no contention, all elapsed delivery time is service or travel.
+        self.assertEqual(record["task_id"], "T001")
+        self.assertAlmostEqual(record["waiting_time_s"], 0)
+        self.assertAlmostEqual(record["loading_wait_time_s"], 0)
+        self.assertAlmostEqual(record["end_time_s"], 37)
+        self.assertAlmostEqual(record["task_duration_s"], 37)
+        self.assertAlmostEqual(record["flow_time_s"], 37)
+
+        # The robot returns for another 20 seconds before finishing.
+        self.assertAlmostEqual(env.now, 57)
+        self.assertEqual(task_queue.items, [])
+
+
+    
