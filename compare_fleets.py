@@ -11,7 +11,7 @@ and plotting.
 import csv
 
 
-from arrival_demo import main as run_scenario
+from arrival_demo import run_scenario
 
 
 def main():
@@ -20,8 +20,9 @@ def main():
 
     # Change fleet size while keeping the scenario inputs fixed.
     for num_robots in [1, 2]:
-        summary = run_scenario(num_robots=num_robots)
-        summaries.append(summary)
+        # Collect experiment outputs without printing individual events.
+        output = run_scenario(num_robots=num_robots, verbose=False)
+        summaries.append(output["summary"])
 
     # Display the collected comparison after both simulations finish.
     print("\nFleet comparison:")

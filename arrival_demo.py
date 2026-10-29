@@ -1,20 +1,22 @@
-"""Simulate two robots serving three requests from a shared FIFO queue.
+"""Compare robot fleets serving three requests through one loading station.
 
-Requests arrive at 0, 10, and 130 seconds. Each robot loads for 5 seconds,
-travels 2 meters at 0.1 m/s, unloads for 10 seconds, and returns empty.
-The scenario demonstrates concurrent deliveries and independent robot
-identities. Loading and unloading have no shared capacity limits yet.
+Requests arrive at 0, 0, and 130 seconds. Each delivery requires loading
+for 5 seconds, traveling 2 meters at 0.1 m/s, and unloading for 10 seconds,
+followed by an empty return. Robots share a FIFO task queue and one
+loading position. Travel and unloading have no shared capacity limits.
 
-All requests start immediately. The fleet finishes its final return
-at 185 seconds.
+run_scenario returns delivery records, per-robot counts, and a performance
+summary. main displays these outputs for an interactive demonstration.
+All time measures use seconds.
 """
 
 import simpy
 
 from simulation import task_source, robot_worker
+from metrics import summarize_results
 
-def main(num_robots=2):
-    """Run the arrival scenario and display its delivery records."""
+def run_scenario(num_robots=2, verbose=True):
+    """Run the fixed arrival scenario and return its records and metrics."""
 
         # Simultaneous requests reveal whether loading capacity is constrained.
     tasks = [
@@ -45,7 +47,7 @@ def main(num_robots=2):
         robot_ids.append(f"R{i + 1:03d}")
 
     env.process(
-        task_source(env, tasks, task_queue, num_robots=len(robot_ids))
+        task_source(env, tasks, task_queue, num_robots=len(robot_ids), verbose=verbose)
     )
 
     # Start independent robot processes that share the task queue.
@@ -61,6 +63,7 @@ def main(num_robots=2):
                 unloading_time_s=10,
                 robot_id=robot_id,
                 loading_station=loading_station,
+                verbose=verbose,
             )
         )
         workers.append(worker)
@@ -75,53 +78,56 @@ def main(num_robots=2):
     # Display records in service-start order.
     results.sort(key=lambda record: record["start_time_s"])
 
+    # Include every robot, even if it completes no deliveries.
     delivery_per_robot = {}
     for robot_id in robot_ids:
         delivery_per_robot[robot_id] = 0
 
+    # Count completed deliveries using the recorded robot identities.
     for record in results:
         delivery_per_robot[record["robot_id"]] += 1
 
+    # Calculate metrics after all workers finish their final empty returns.
+    summary = summarize_results(
+        results,
+        num_robots=num_robots,
+        fleet_finish_time_s=env.now,
+    )
+
+    # Return structured data so callers can display, export, or analyze it.
+    return {
+        "results": results,
+        "deliveries_per_robot": delivery_per_robot,
+        "summary": summary,
+    }
+
+
+def main(num_robots=2):
+    """Run the demonstration, display its outputs, and return its summary."""
+
+    # Retrieve the structured outputs from the simulation runner.
+    output = run_scenario(num_robots=num_robots)
+    results = output["results"]
+    deliveries_per_robot = output["deliveries_per_robot"]
+    summary = output["summary"]
+
+    # Display how completed deliveries were distributed across the fleet.
     print("\nDeliveries per robot:")
-    for robot_id, count in delivery_per_robot.items():
+    for robot_id, count in deliveries_per_robot.items():
         print(f"{robot_id}: {count}")
 
     for result in results:
         print(result)
 
-    print(f"Completed deliveries: {len(results)}")
-    print(f"Fleet finished at: {env.now} seconds")
+    # Round only the displayed values; preserve precision in the dictionary.
+    print(f"Completed deliveries: {summary['completed_deliveries']}")
+    print(f"Fleet finished at: {summary['fleet_finish_time_s']:.1f} seconds")
+    print(f"Mean waiting for robot: {summary['mean_robot_wait_s']:.2f} s")
+    print(f"Mean waiting for loading: {summary['mean_loading_wait_s']:.2f} s")
+    print(f"Mean flow time: {summary['mean_flow_time_s']:.2f} s")
 
-    # Summarize delays across completed deliveries.
-    completed = len(results)
-
-    if completed > 0:
-        mean_robot_wait_s = sum(
-            record["waiting_time_s"] for record in results
-        ) / completed
-
-        mean_loading_wait_s = sum(
-            record["loading_wait_time_s"] for record in results
-        ) / completed
-
-        mean_flow_time_s = sum(
-            record["flow_time_s"] for record in results
-        ) / completed
-
-        print(f"Mean waiting for robot: {mean_robot_wait_s:.2f} s")
-        print(f"Mean waiting for loading: {mean_loading_wait_s:.2f} s")
-        print(f"Mean flow time: {mean_flow_time_s:.2f} s")
-
-
-         # Return scenario metrics for comparison, CSV export, and plotting.
-        return {
-            "num_robots": num_robots,
-            "completed_deliveries": completed,
-            "fleet_finish_time_s": env.now,
-            "mean_robot_wait_s": mean_robot_wait_s,
-            "mean_loading_wait_s": mean_loading_wait_s,
-            "mean_flow_time_s": mean_flow_time_s,
-        }
+    # Preserve the current interface used by compare_fleets.py.
+    return summary
 
 if __name__ == "__main__":
     main()

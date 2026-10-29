@@ -25,10 +25,10 @@ task_ids = ["T001", "T002", "T003", "T004", "T005"]  # List of task IDs
 # Accept a shared loading station while preserving the unconstrained baseline.
 def transport_task(
     env, task_id, distance_m, speed_m_s,
-    loading_time_s, unloading_time_s, loading_station=None
+    loading_time_s, unloading_time_s,
+    loading_station=None, verbose=True,
 ):
-    """Execute a delivery, including any loading-station wait.
-
+    """Execute one delivery, optionally printing its event messages.
     start_time_s marks task handling before station access.
     task_duration_s includes station waiting but excludes empty return.
     """
@@ -54,9 +54,11 @@ def transport_task(
         # The baseline allows loading to begin immediately.
         loading_start_time_s = env.now
         loading_wait_time_s = 0
-        print(f"{env.now}: Task {task_id}: Loading started")
+        if verbose:
+            print(f"{env.now}: Task {task_id}: Loading started")
         yield env.timeout(loading_time_s)
-        print(f"{env.now}: Task {task_id}: Loading completed")
+        if verbose:
+            print(f"{env.now}: Task {task_id}: Loading completed")
     else:
         # Hold the shared station only during loading.
         with loading_station.request() as request:
@@ -64,20 +66,26 @@ def transport_task(
 
             loading_start_time_s = env.now
             loading_wait_time_s = env.now - loading_request_time_s
-            print(f"{env.now}: Task {task_id}: Loading started")
+            if verbose:
+                print(f"{env.now}: Task {task_id}: Loading started")
             yield env.timeout(loading_time_s)
-            print(f"{env.now}: Task {task_id}: Loading completed")
+            if verbose:
+                print(f"{env.now}: Task {task_id}: Loading completed")
 
 
-    print(f"{env.now}: Task {task_id}: Transport started")
+    if verbose:
+        print(f"{env.now}: Task {task_id}: Transport started")
     yield env.timeout(travel_time_s)
-    print(f"{env.now}: Task {task_id}: Transport completed")
-    print(f"{env.now}: Task {task_id}: Unloading started")
+    if verbose:
+        print(f"{env.now}: Task {task_id}: Transport completed")
+        print(f"{env.now}: Task {task_id}: Unloading started")
     yield env.timeout(unloading_time_s)
-    print(f"{env.now}: Task {task_id}: Unloading completed")
+    if verbose:
+        print(f"{env.now}: Task {task_id}: Unloading completed")
     # Delivery duration excludes the empty return handled by robot_workflow.
     task_duration_s = env.now - start_time_s
-    print(f"{env.now}: Task {task_id}: Total task duration: {task_duration_s} seconds")
+    if verbose:
+        print(f"{env.now}: Task {task_id}: Total task duration: {task_duration_s} seconds")
 
     # Preserve task timing and expose the delay caused by loading capacity.
     return {
@@ -164,7 +172,7 @@ def arrival_workflow(env, tasks, distance_m, speed_m_s,
     return results
 
 
-def task_source(env, tasks, task_queue, num_robots=1):
+def task_source(env, tasks, task_queue, num_robots=1, verbose=True):
     """Release task records into a shared queue at their arrival times.
 
     Arrival times are absolute simulation times in seconds.
@@ -196,14 +204,16 @@ def task_source(env, tasks, task_queue, num_robots=1):
         # make therequest available independently of robot activity.
 
         yield task_queue.put(task)
-        print(f"{env.now}: Task {task['task_id']}: Arrived")
+        if verbose:
+            print(f"{env.now}: Task {task['task_id']}: Arrived")
 
     # Each worker consumes one stop signal and then returns its results.
     for _ in range(num_robots):
         yield task_queue.put(None)
 
 def robot_worker(env, task_queue, distance_m, speed_m_s,
-                 loading_time_s, unloading_time_s, robot_id="R001", loading_station=None):
+                 loading_time_s, unloading_time_s, robot_id="R001", loading_station=None, verbose=True,
+):
     """Serve queued deliveries in FIFO order until a None stop signal.
 
     Record waiting and flow times in seconds. Complete an empty return
@@ -231,6 +241,7 @@ def robot_worker(env, task_queue, distance_m, speed_m_s,
                 env, task_id, distance_m, speed_m_s,
                 loading_time_s, unloading_time_s,
                 loading_station=loading_station,
+                verbose=verbose,
             )
         )
 
@@ -242,9 +253,11 @@ def robot_worker(env, task_queue, distance_m, speed_m_s,
         results.append(result)
 
         # the robot remains occupied until it returns to pickup.
-        print(f"{env.now}: Task {task_id}: Empty return started")
+        if verbose:
+            print(f"{env.now}: Task {task_id}: Empty return started")
         yield env.timeout(distance_m / speed_m_s)
-        print(f"{env.now}: Task {task_id}: Empty return completed")
+        if verbose:
+            print(f"{env.now}: Task {task_id}: Empty return completed")
 
 
 
